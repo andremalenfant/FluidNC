@@ -63,7 +63,7 @@ static void gcode_comment_msg(char* comment) {
             index++;
         }
         msg[index - offset] = 0;  // null terminate
-        log_info("GCode Comment..." << msg);
+        log_gcode_msg(msg);
     }
 }
 

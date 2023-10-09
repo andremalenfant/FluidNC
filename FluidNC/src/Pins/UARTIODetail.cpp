@@ -59,7 +59,7 @@ namespace Pins {
     }
 
     int UARTIODetail::read() {
-        log_info("Uart Read");
+        //log_info("Uart Read");
         return 0;
     }
 
