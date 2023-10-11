@@ -21,8 +21,10 @@ int32_t  probe_steps[MAX_N_AXIS];  // Last probe position in steps.
 void system_reset() {
     // Reset system variables.
     State prior_state = sys.state;
+    bool  prior_abort = sys.abort;
     memset(&sys, 0, sizeof(system_t));  // Clear system struct variable.
     sys.state             = prior_state;
+    sys.abort             = prior_abort;
     sys.f_override        = FeedOverride::Default;          // Set to 100%
     sys.r_override        = RapidOverride::Default;         // Set to 100%
     sys.spindle_speed_ovr = SpindleSpeedOverride::Default;  // Set to 100%
@@ -90,6 +92,19 @@ float* get_mpos() {
     motor_steps_to_mpos(position, get_motor_steps());
     return position;
 };
+
+float* get_wco() {
+    static float wco[MAX_N_AXIS];
+    auto         n_axis = config->_axes->_numberAxis;
+    for (int idx = 0; idx < n_axis; idx++) {
+        // Apply work coordinate offsets and tool length offset to current position.
+        wco[idx] = gc_state.coord_system[idx] + gc_state.coord_offset[idx];
+        if (idx == TOOL_LENGTH_OFFSET_AXIS) {
+            wco[idx] += gc_state.tool_length_offset;
+        }
+    }
+    return wco;
+}
 
 std::map<State, const char*> StateName = {
     { State::Idle, "Idle" },

@@ -12,6 +12,7 @@
 #include "Config.h"            // MAX_N_AXIS
 #include "SpindleDatatypes.h"  // SpindleState
 #include "GCode.h"             // CoolantState
+#include "Types.h"             // AxisMask
 
 #include <cstdint>
 
@@ -55,17 +56,20 @@ struct plan_block_t {
 
     // Stored spindle speed data used by spindle overrides and resuming methods.
     SpindleSpeed spindle_speed;  // Block spindle speed. Copied from pl_line_data.
+
+    bool is_jog;
 };
 
 // Planner data prototype. Must be used when passing new motions to the planner.
 struct plan_line_data_t {
-    float        feed_rate;      // Desired feed rate for line motion. Value is ignored, if rapid motion.
-    SpindleSpeed spindle_speed;  // Desired spindle speed through line motion.
-    PlMotion     motion;         // Bitflag variable to indicate motion conditions. See defines above.
-    SpindleState spindle;        // Spindle enable state
-    CoolantState coolant;        // Coolant state
-    int32_t      line_number;    // Desired line number to report when executing.
-    bool         is_jog;         // true if this was generated due to a jog command
+    float        feed_rate;       // Desired feed rate for line motion. Value is ignored, if rapid motion.
+    SpindleSpeed spindle_speed;   // Desired spindle speed through line motion.
+    PlMotion     motion;          // Bitflag variable to indicate motion conditions. See defines above.
+    SpindleState spindle;         // Spindle enable state
+    CoolantState coolant;         // Coolant state
+    int32_t      line_number;     // Desired line number to report when executing.
+    bool         is_jog;          // true if this was generated due to a jog command
+    bool         limits_checked;  // true if soft limits already checked
 };
 
 void plan_init();

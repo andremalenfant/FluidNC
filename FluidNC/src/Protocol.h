@@ -9,6 +9,7 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include "Config.h"
 
 // Line buffer size from the serial input stream to be executed.Also, governs the size of
 // each of the startup blocks, as they are each stored as a string of this size.
@@ -43,7 +44,6 @@ void protocol_buffer_synchronize();
 void protocol_disable_steppers();
 void protocol_cancel_disable_steppers();
 
-extern volatile bool rtReset;
 extern volatile bool rtCycleStop;
 
 extern volatile bool runLimitLoop;
@@ -63,12 +63,17 @@ enum class ExecAlarm : uint8_t {
     SpindleControl        = 10,
     ControlPin            = 11,
     HomingAmbiguousSwitch = 12,
+    HardStop              = 13,
+    Unhomed               = 14,
+    Init                  = 15,
 };
 
-extern volatile ExecAlarm rtAlarm;  // Global realtime executor variable for setting various alarms.
+extern volatile ExecAlarm lastAlarm;
 
 #include <map>
 extern std::map<ExecAlarm, const char*> AlarmNames;
+
+const char* alarmString(ExecAlarm alarmNumber);
 
 #include "Event.h"
 enum AccessoryOverride {
@@ -82,6 +87,7 @@ extern ArgEvent rapidOverrideEvent;
 extern ArgEvent spindleOverrideEvent;
 extern ArgEvent accessoryOverrideEvent;
 extern ArgEvent limitEvent;
+extern ArgEvent faultPinEvent;
 
 extern ArgEvent reportStatusEvent;
 
@@ -91,12 +97,19 @@ extern NoArgEvent cycleStartEvent;
 extern NoArgEvent cycleStopEvent;
 extern NoArgEvent motionCancelEvent;
 extern NoArgEvent sleepEvent;
-extern NoArgEvent resetEvent;
+extern NoArgEvent rtResetEvent;
 extern NoArgEvent debugEvent;
+extern NoArgEvent unhomedEvent;
+extern NoArgEvent startEvent;
+extern NoArgEvent restartEvent;
+
+extern NoArgEvent runStartupLinesEvent;
 
 // extern NoArgEvent statusReportEvent;
 
 extern xQueueHandle event_queue;
+
+extern bool pollingPaused;
 
 struct EventItem {
     Event* event;
@@ -106,7 +119,19 @@ struct EventItem {
 void protocol_send_event(Event*, void* arg = 0);
 void protocol_handle_events();
 
+void send_alarm(ExecAlarm alarm);
+void send_alarm_from_ISR(ExecAlarm alarm);
+
 inline void protocol_send_event(Event* evt, int arg) {
     protocol_send_event(evt, (void*)arg);
 }
+
 void protocol_send_event_from_ISR(Event* evt, void* arg = 0);
+
+void send_line(Channel& channel, const char* message);
+void send_line(Channel& channel, const std::string* message);
+void send_line(Channel& channel, const std::string& message);
+
+void drain_messages();
+
+extern uint32_t heapLowWater;

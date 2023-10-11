@@ -2,7 +2,7 @@
 
 #include "../Motors/MotorDriver.h"
 #include "../Motors/NullMotor.h"
-#include "../NutsBolts.h"
+#include "../Config.h"
 #include "../MotionControl.h"
 #include "../Stepper.h"     // stepper_id_t
 #include "MachineConfig.h"  // config->
@@ -13,9 +13,10 @@ EnumItem axisType[] = { { 0, "X" }, { 1, "Y" }, { 2, "Z" }, { 3, "A" }, { 4, "B"
 namespace Machine {
     MotorMask Axes::posLimitMask = 0;
     MotorMask Axes::negLimitMask = 0;
-    MotorMask Axes::homingMask   = 0;
     MotorMask Axes::limitMask    = 0;
     MotorMask Axes::motorMask    = 0;
+
+    AxisMask Axes::homingMask = 0;
 
     Axes::Axes() : _axis() {
         for (int i = 0; i < MAX_N_AXIS; ++i) {
@@ -227,9 +228,9 @@ namespace Machine {
         }
     }
 
-    String Axes::maskToNames(AxisMask mask) {
-        String retval = "";
-        auto   n_axis = _numberAxis;
+    std::string Axes::maskToNames(AxisMask mask) {
+        std::string retval("");
+        auto        n_axis = _numberAxis;
         for (int axis = 0; axis < n_axis; axis++) {
             if (bitnum_is_true(mask, axis)) {
                 retval += _names[axis];
@@ -237,9 +238,9 @@ namespace Machine {
         }
         return retval;
     }
-    String Axes::motorMaskToNames(MotorMask mask) {
-        String retval = "";
-        auto   n_axis = _numberAxis;
+    std::string Axes::motorMaskToNames(MotorMask mask) {
+        std::string retval("");
+        auto        n_axis = _numberAxis;
         for (int axis = 0; axis < n_axis; axis++) {
             if (bitnum_is_true(mask, axis)) {
                 retval += " ";

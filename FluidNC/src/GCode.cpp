@@ -10,7 +10,6 @@
 #include "Config.h"
 #include "Report.h"
 #include "Jog.h"
-#include "NutsBolts.h"
 #include "Protocol.h"             // protocol_buffer_synchronize
 #include "MotionControl.h"        // mc_override_ctrl_update
 #include "Machine/UserOutputs.h"  // setAnalogPercent
@@ -125,11 +124,15 @@ void collapseGCode(char* line) {
     *outPtr = '\0';
 }
 
+static void gc_ngc_changed(CoordIndex coord) {
+    allChannels.notifyNgc(coord);
+}
+
 static void gc_wco_changed() {
     if (FORCE_BUFFER_SYNC_DURING_WCO_CHANGE) {
         protocol_buffer_synchronize();
     }
-    report_wco_counter = 0;
+    allChannels.notifyWco();
 }
 
 // Executes one line of NUL-terminated G-Code.
@@ -138,12 +141,9 @@ static void gc_wco_changed() {
 // In this function, all units and positions are converted and
 // exported to internal functions in terms of (mm, mm/min) and absolute machine
 // coordinates, respectively.
-Error gc_execute_line(char* line, Channel& channel) {
+Error gc_execute_line(char* line) {
     // Step 0 - remove whitespace and comments and convert to upper case
     collapseGCode(line);
-#ifdef DEBUG_REPORT_ECHO_LINE_RECEIVED
-    report_echo_line_received(line, channel);
-#endif
 
     /* -------------------------------------------------------------------------------------
        STEP 1: Initialize parser block struct and copy current g-code state modes. The parser
@@ -172,6 +172,7 @@ Error gc_execute_line(char* line, Channel& channel) {
     bool syncLaser     = false;
     bool disableLaser  = false;
     bool laserIsMotion = false;
+    bool nonmodalG38   = false;  // Used for G38.6-9
 
     auto    n_axis = config->_axes->_numberAxis;
     float   coord_data[MAX_N_AXIS];  // Used by WCO-related commands
@@ -320,6 +321,10 @@ Error gc_execute_line(char* line, Channel& channel) {
                         probeExplicit = true;
 
                         axis_command = AxisCommand::MotionMode;
+                        if (mantissa >= 60) {
+                            nonmodalG38 = true;
+                            mantissa -= 40;
+                        }
                         switch (mantissa) {
                             case 20:
                                 gc_block.modal.motion = Motion::ProbeToward;
@@ -480,7 +485,7 @@ Error gc_execute_line(char* line, Channel& channel) {
                 break;
             case 'M':
                 // Determine 'M' command and its modal group
-                if (mantissa > 0) {
+                if (mantissa > 0 && !(int_value == 7 || int_value == 8)) {
                     FAIL(Error::GcodeCommandValueNotInteger);  // [No Mxx.x commands]
                 }
                 switch (int_value) {
@@ -533,11 +538,17 @@ Error gc_execute_line(char* line, Channel& channel) {
                     case 9:
                         switch (int_value) {
                             case 7:
+                                if (mantissa && mantissa != 10) {
+                                    FAIL(Error::GcodeUnsupportedCommand);  // M7 and M7.1 are supported
+                                }
                                 if (config->_coolant->hasMist()) {
                                     gc_block.coolant = GCodeCoolant::M7;
                                 }
                                 break;
                             case 8:
+                                if (mantissa && mantissa != 10) {
+                                    FAIL(Error::GcodeUnsupportedCommand);  // M8 and M8.1 are supported
+                                }
                                 if (config->_coolant->hasFlood()) {
                                     gc_block.coolant = GCodeCoolant::M8;
                                 }
@@ -788,7 +799,7 @@ Error gc_execute_line(char* line, Channel& channel) {
         if (bitnum_is_false(value_words, GCodeWord::F)) {
             FAIL(Error::GcodeUndefinedFeedRate);
         }
-        if (gc_block.modal.units == Units::Inches) {
+        if (!nonmodalG38 && gc_block.modal.units == Units::Inches) {
             gc_block.values.f *= MM_PER_INCH;
         }
     } else {
@@ -816,7 +827,7 @@ Error gc_execute_line(char* line, Channel& channel) {
             // - In units per mm mode: If F word passed, ensure value is in mm/min, otherwise push last state value.
             if (gc_state.modal.feed_rate == FeedRate::UnitsPerMin) {  // Last state is also G94
                 if (bitnum_is_true(value_words, GCodeWord::F)) {
-                    if (gc_block.modal.units == Units::Inches) {
+                    if (!nonmodalG38 && gc_block.modal.units == Units::Inches) {
                         gc_block.values.f *= MM_PER_INCH;
                     }
                 } else {
@@ -889,7 +900,7 @@ Error gc_execute_line(char* line, Channel& channel) {
 
     // [12. Set length units ]: N/A
     // Pre-convert XYZ coordinate values to millimeters, if applicable.
-    if (gc_block.modal.units == Units::Inches) {
+    if (!nonmodalG38 && gc_block.modal.units == Units::Inches) {
         for (size_t idx = 0; idx < n_axis; idx++) {  // Axes indices are consistent, so loop may be used.
             if ((idx < A_AXIS || idx > C_AXIS) && bitnum_is_true(axis_words, idx)) {
                 gc_block.values.xyz[idx] *= MM_PER_INCH;
@@ -907,6 +918,7 @@ Error gc_execute_line(char* line, Channel& channel) {
     //   axis that is configured (in config.h). There should be an error if the configured axis
     //   is absent or if any of the other axis words are present.
     if (axis_command == AxisCommand::ToolLengthOffset) {  // Indicates called in block.
+        gc_ngc_changed(CoordIndex::TLO);
         if (gc_block.modal.tool_length == ToolLengthOffset::EnableDynamic) {
             if (axis_words ^ bitnum_to_mask(TOOL_LENGTH_OFFSET_AXIS)) {
                 FAIL(Error::GcodeG43DynamicAxisError);
@@ -990,6 +1002,7 @@ Error gc_execute_line(char* line, Channel& channel) {
                     }
                 }  // Else, keep current stored value.
             }
+            gc_ngc_changed(static_cast<CoordIndex>(coord_select));
             break;
         case NonModal::SetCoordinateOffset:
             // [G92 Errors]: No axis words.
@@ -1009,6 +1022,7 @@ Error gc_execute_line(char* line, Channel& channel) {
                     gc_block.values.xyz[idx] = gc_state.coord_offset[idx];
                 }
             }
+            gc_ngc_changed(CoordIndex::G92);
             break;
         default:
             // At this point, the rest of the explicit axis commands treat the axis values as the traditional
@@ -1025,7 +1039,7 @@ Error gc_execute_line(char* line, Channel& channel) {
                             // NOTE: G53 is never active with G28/30 since they are in the same modal group.
                             if (gc_block.non_modal_command != NonModal::AbsoluteOverride) {
                                 // Apply coordinate offsets based on distance mode.
-                                if (gc_block.modal.distance == Distance::Absolute) {
+                                if (!nonmodalG38 && gc_block.modal.distance == Distance::Absolute) {
                                     gc_block.values.xyz[idx] += block_coord_system[idx] + gc_state.coord_offset[idx];
                                     if (idx == TOOL_LENGTH_OFFSET_AXIS) {
                                         gc_block.values.xyz[idx] += gc_state.tool_length_offset;
@@ -1129,6 +1143,10 @@ Error gc_execute_line(char* line, Channel& channel) {
                     if (!(axis_words & (bitnum_to_mask(axis_0) | bitnum_to_mask(axis_1)))) {
                         FAIL(Error::GcodeNoAxisWordsInPlane);  // [No axis words in plane]
                     }
+                    if (gc_block.values.p != truncf(gc_block.values.p) || gc_block.values.p < 0.0) {
+                        FAIL(Error::GcodeCommandValueNotInteger);  // [P word is not an integer]
+                    }
+
                     // Calculate the change in position along each selected axis
                     float x, y;
                     x = gc_block.values.xyz[axis_0] - gc_state.position[axis_0];  // Delta x between current position and target
@@ -1139,7 +1157,7 @@ Error gc_execute_line(char* line, Channel& channel) {
                             FAIL(Error::GcodeInvalidTarget);  // [Invalid target]
                         }
                         // Convert radius value to proper units.
-                        if (gc_block.modal.units == Units::Inches) {
+                        if (!nonmodalG38 && gc_block.modal.units == Units::Inches) {
                             gc_block.values.r *= MM_PER_INCH;
                         }
                         /*  We need to calculate the center of the circle that has the designated radius and passes
@@ -1233,7 +1251,7 @@ Error gc_execute_line(char* line, Channel& channel) {
                         }
                         clear_bits(value_words, (bitnum_to_mask(GCodeWord::I) | bitnum_to_mask(GCodeWord::J) | bitnum_to_mask(GCodeWord::K)));
                         // Convert IJK values to proper units.
-                        if (gc_block.modal.units == Units::Inches) {
+                        if (!nonmodalG38 && gc_block.modal.units == Units::Inches) {
                             for (size_t idx = 0; idx < n_axis; idx++) {  // Axes indices are consistent, so loop may be used to save flash space.
                                 if (ijk_words & bitnum_to_mask(idx)) {
                                     gc_block.values.ijk[idx] *= MM_PER_INCH;
@@ -1257,6 +1275,7 @@ Error gc_execute_line(char* line, Channel& channel) {
                             }
                         }
                     }
+                    clear_bitnum(value_words, GCodeWord::P);
                     break;
                 case Motion::ProbeTowardNoError:
                 case Motion::ProbeAwayNoError:
@@ -1352,16 +1371,11 @@ Error gc_execute_line(char* line, Channel& channel) {
         if (!blockIsFeedrateMotion) {
             // If the new mode is not a feedrate move (G1/2/3) we want the laser off
             disableLaser = true;
-            // If we are changing from a feedrate move to a non-feedrate move,
-            // we must sync the planner and then update the laser state
-            if (stateIsFeedrateMotion) {
-                syncLaser = true;
-            }
         }
         // Any motion mode with axis words is allowed to be passed from a spindle speed update.
         // NOTE: G1 and G0 without axis words sets axis_command to none. G28/30 are intentionally omitted.
         // TODO: Check sync conditions for M3 enabled motions that don't enter the planner. (zero length).
-        if (blockIsFeedrateMotion && axis_words && (axis_command == AxisCommand::MotionMode)) {
+        if (axis_words && (axis_command == AxisCommand::MotionMode)) {
             laserIsMotion = true;
         } else {
             // M3 constant power laser requires planner syncs to update the laser when changing between
@@ -1396,14 +1410,10 @@ Error gc_execute_line(char* line, Channel& channel) {
     pl_data->feed_rate = gc_state.feed_rate;  // Record data for planner use.
     // [4. Set spindle speed ]:
     if ((gc_state.spindle_speed != gc_block.values.s) || syncLaser) {
-        if (gc_state.modal.spindle != SpindleState::Disable) {
-            if (!laserIsMotion) {
-                if (sys.state != State::CheckMode) {
-                    protocol_buffer_synchronize();
-                    spindle->setState(gc_state.modal.spindle, disableLaser ? 0 : (uint32_t)gc_block.values.s);
-                    report_ovr_counter = 0;  // Set to report change immediately
-                }
-            }
+        if (gc_state.modal.spindle != SpindleState::Disable && !laserIsMotion && sys.state != State::CheckMode) {
+            protocol_buffer_synchronize();
+            spindle->setState(gc_state.modal.spindle, disableLaser ? 0 : (uint32_t)gc_block.values.s);
+            report_ovr_counter = 0;  // Set to report change immediately
         }
         gc_state.spindle_speed = gc_block.values.s;  // Update spindle speed state.
     }
@@ -1441,10 +1451,10 @@ Error gc_execute_line(char* line, Channel& channel) {
             case GCodeCoolant::None:
                 break;
             case GCodeCoolant::M7:
-                gc_state.modal.coolant.Mist = 1;
+                gc_state.modal.coolant.Mist = mantissa == 10 ? 0 : 1;
                 break;
             case GCodeCoolant::M8:
-                gc_state.modal.coolant.Flood = 1;
+                gc_state.modal.coolant.Flood = mantissa == 10 ? 0 : 1;
                 break;
             case GCodeCoolant::M9:
                 gc_state.modal.coolant = {};
@@ -1521,7 +1531,6 @@ Error gc_execute_line(char* line, Channel& channel) {
         // else G43.1
         if (gc_state.tool_length_offset != gc_block.values.xyz[TOOL_LENGTH_OFFSET_AXIS]) {
             gc_state.tool_length_offset = gc_block.values.xyz[TOOL_LENGTH_OFFSET_AXIS];
-            gc_wco_changed();
         }
     }
     // [15. Coordinate system selection ]:
@@ -1558,16 +1567,20 @@ Error gc_execute_line(char* line, Channel& channel) {
             break;
         case NonModal::SetHome0:
             coords[CoordIndex::G28]->set(gc_state.position);
+            gc_ngc_changed(CoordIndex::G28);
             break;
         case NonModal::SetHome1:
             coords[CoordIndex::G30]->set(gc_state.position);
+            gc_ngc_changed(CoordIndex::G30);
             break;
         case NonModal::SetCoordinateOffset:
             copyAxes(gc_state.coord_offset, gc_block.values.xyz);
+            gc_ngc_changed(CoordIndex::G92);
             gc_wco_changed();
             break;
         case NonModal::ResetCoordinateOffset:
             clear_vector(gc_state.coord_offset);  // Disable G92 offsets by zeroing offset vector.
+            gc_ngc_changed(CoordIndex::G92);
             gc_wco_changed();
             break;
         default:
@@ -1594,7 +1607,8 @@ Error gc_execute_line(char* line, Channel& channel) {
                        axis_0,
                        axis_1,
                        axis_linear,
-                       clockwiseArc);
+                       clockwiseArc,
+                       int(gc_block.values.p));
             } else {
                 // NOTE: gc_block.values.xyz is returned from mc_probe_cycle with the updated position value. So
                 // upon a successful probing cycle, the machine position and the returned value should be the same.

@@ -21,7 +21,7 @@ namespace MotorDrivers {
         if (_cs_pin.capabilities().has(Pin::Capabilities::I2S)) {
             tmc5160->setSPISpeed(_spi_freq);
         }
-        TrinamicSpiDriver::finalInit();
+        registration();
     }
 
     void TMC5160Driver::config_motor() {
@@ -79,6 +79,14 @@ namespace MotorDrivers {
                     break;
                 }
         }
+        // dump the registers. This is helpful for people migrating to the Pro version
+        log_verbose("CHOPCONF: " << to_hex(tmc5160->CHOPCONF()));
+        log_verbose("COOLCONF: " << to_hex(tmc5160->COOLCONF()));
+        log_verbose("THIGH: " << to_hex(tmc5160->THIGH()));
+        log_verbose("TCOOLTHRS: " << to_hex(tmc5160->TCOOLTHRS()));
+        log_verbose("GCONF: " << to_hex(tmc5160->GCONF()));
+        log_verbose("PWMCONF: " << to_hex(tmc5160->PWMCONF()));
+        log_verbose("IHOLD_IRUN: " << to_hex(tmc5160->IHOLD_IRUN()));
     }
 
     // Report diagnostic and tuning info

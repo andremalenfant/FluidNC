@@ -30,10 +30,26 @@ namespace Kinematics {
         for (size_t axis = Z_AXIS; axis < n_axis; axis++) {
             last_motor_segment_end[axis] = 0.0;
         }
+
+        init_position();
     }
 
-    void WallPlotter::transform_cartesian_to_motors(float* cartesian, float* motors) {
+    // Initialize the machine position
+    void WallPlotter::init_position() {
+        auto n_axis = config->_axes->_numberAxis;
+        for (size_t axis = 0; axis < n_axis; axis++) {
+            set_motor_steps(axis, 0);  // Set to zeros
+        }
+    }
+
+    bool WallPlotter::canHome(AxisMask axisMask) {
+        log_error("This kinematic system cannot home");
+        return false;
+    }
+
+    bool WallPlotter::transform_cartesian_to_motors(float* cartesian, float* motors) {
         log_error("WallPlotter::transform_cartesian_to_motors is broken");
+        return true;
     }
 
     /*
@@ -83,6 +99,9 @@ namespace Kinematics {
 
         // Calculate desired cartesian feedrate distance ratio. Same for each seg.
         for (uint32_t segment = 1; segment <= segment_count; segment++) {
+            if (sys.abort) {
+                return true;
+            }
             // calculate the cartesian end point of the next segment
             for (size_t axis = X_AXIS; axis < n_axis; axis++) {
                 cartesian_segment_end[axis] += cartesian_segment_components[axis];
@@ -212,6 +231,10 @@ namespace Kinematics {
         float right_dy = _right_anchor_y - y;
         float right_dx = _right_anchor_x - x;
         right_length   = hypot_f(right_dx, right_dy);
+    }
+
+    bool WallPlotter::kinematics_homing(AxisMask& axisMask) {
+        return false;  // kinematics does not do the homing for catesian systems
     }
 
     // Configuration registration

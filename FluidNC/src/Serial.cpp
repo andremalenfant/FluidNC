@@ -38,7 +38,7 @@
 */
 
 #include "Serial.h"
-#include "Uart.h"
+#include "UartChannel.h"
 #include "Machine/MachineConfig.h"
 #include "WebUI/InputBuffer.h"
 #include "WebUI/Commands.h"
@@ -60,7 +60,8 @@
 #include <algorithm>
 #include <freertos/task.h>  // portMUX_TYPE, TaskHandle_T
 
-portMUX_TYPE myMutex = portMUX_INITIALIZER_UNLOCKED;
+std::mutex AllChannels::_mutex_general;
+std::mutex AllChannels::_mutex_pollLine;
 
 static TaskHandle_t channelCheckTaskHandle = 0;
 
@@ -87,7 +88,7 @@ void execute_realtime_command(Cmd command, Channel& channel) {
     switch (command) {
         case Cmd::Reset:
             log_debug("Cmd::Reset");
-            protocol_send_event(&resetEvent);
+            protocol_send_event(&rtResetEvent);
             break;
         case Cmd::StatusReport:
             report_realtime_status(channel);  // direct call instead of setting flag
@@ -186,9 +187,8 @@ bool is_realtime_command(uint8_t data) {
 }
 
 void AllChannels::init() {
-    registration(&Uart0);               // USB Serial
     registration(&WebUI::inputBuffer);  // Macros
-    registration(&startupLog);          // USB Serial
+    registration(&startupLog);          // Early startup messages for $SS
 }
 
 void AllChannels::kill(Channel* channel) {
@@ -196,40 +196,77 @@ void AllChannels::kill(Channel* channel) {
 }
 
 void AllChannels::registration(Channel* channel) {
+    _mutex_general.lock();
+    _mutex_pollLine.lock();
     _channelq.push_back(channel);
+    _mutex_pollLine.unlock();
+    _mutex_general.unlock();
 }
 void AllChannels::deregistration(Channel* channel) {
+    _mutex_general.lock();
+    _mutex_pollLine.lock();
     if (channel == _lastChannel) {
         _lastChannel = nullptr;
     }
     _channelq.erase(std::remove(_channelq.begin(), _channelq.end(), channel), _channelq.end());
+    _mutex_pollLine.unlock();
+    _mutex_general.unlock();
 }
 
-String AllChannels::info() {
-    String retval;
+void AllChannels::listChannels(Channel& out) {
+    _mutex_general.lock();
+    std::string retval;
     for (auto channel : _channelq) {
-        retval += channel->name();
-        retval += "\n";
+        log_to(out, channel->name());
     }
-    return retval;
+    _mutex_general.unlock();
 }
 
 void AllChannels::flushRx() {
+    _mutex_general.lock();
     for (auto channel : _channelq) {
         channel->flushRx();
     }
+    _mutex_general.unlock();
 }
 
 size_t AllChannels::write(uint8_t data) {
+    _mutex_general.lock();
     for (auto channel : _channelq) {
         channel->write(data);
     }
+    _mutex_general.unlock();
     return 1;
 }
+void AllChannels::notifyWco(void) {
+    _mutex_general.lock();
+    for (auto channel : _channelq) {
+        channel->notifyWco();
+    }
+    _mutex_general.unlock();
+}
+void AllChannels::notifyNgc(CoordIndex coord) {
+    _mutex_general.lock();
+    for (auto channel : _channelq) {
+        channel->notifyNgc(coord);
+    }
+    _mutex_general.unlock();
+}
+
+void AllChannels::stopJob() {
+    _mutex_general.lock();
+    for (auto channel : _channelq) {
+        channel->stopJob();
+    }
+    _mutex_general.unlock();
+}
+
 size_t AllChannels::write(const uint8_t* buffer, size_t length) {
+    _mutex_general.lock();
     for (auto channel : _channelq) {
         channel->write(buffer, length);
     }
+    _mutex_general.unlock();
     return length;
 }
 Channel* AllChannels::pollLine(char* line) {
@@ -242,13 +279,17 @@ Channel* AllChannels::pollLine(char* line) {
     // To avoid starving other channels when one has a lot
     // of traffic, we poll the other channels before the last
     // one that returned a line.
+    _mutex_pollLine.lock();
+
     for (auto channel : _channelq) {
         // Skip the last channel in the loop
         if (channel != _lastChannel && channel->pollLine(line)) {
             _lastChannel = channel;
+            _mutex_pollLine.unlock();
             return _lastChannel;
         }
     }
+    _mutex_pollLine.unlock();
     // If no other channel returned a line, try the last one
     if (_lastChannel && _lastChannel->pollLine(line)) {
         return _lastChannel;
