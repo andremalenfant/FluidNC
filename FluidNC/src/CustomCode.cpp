@@ -10,3 +10,6 @@
 #ifdef DISPLAY_CODE_FILENAME
 #    include DISPLAY_CODE_FILENAME
 #endif
+
+#include "Custom/Dusty.h"
+#include "Custom/KeypadJog.h"

@@ -25,6 +25,8 @@
 #    include "WebUI/WifiConfig.h"
 #    include "Driver/localfs.h"
 
+#include "Custom/Dusty.h"
+
 extern void make_user_commands();
 
 void setup() {
@@ -139,6 +141,7 @@ void setup() {
         WebUI::wifi_config.begin();
     }
 
+  dusty_init();
     allChannels.deregistration(&startupLog);
     protocol_send_event(&startEvent);
 }
