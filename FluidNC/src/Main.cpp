@@ -134,6 +134,7 @@ void setup() {
     if (!WebUI::wifi_config.begin()) {
         WebUI::bt_config.begin();
     }
+    dusty_init();
     allChannels.deregistration(&startupLog);
 }
 
