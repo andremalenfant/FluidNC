@@ -25,6 +25,8 @@
 #    include "WebUI/WifiConfig.h"
 #    include "Driver/localfs.h"
 
+#include "Custom/Dusty.h"
+
 extern void make_user_commands();
 
 void setup() {
