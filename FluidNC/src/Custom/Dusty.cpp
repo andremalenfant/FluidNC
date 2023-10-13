@@ -41,13 +41,13 @@ void sendMessage(bool on) {
         data += "\"TOOL_ON\"}";
     } else {
         data += "\"TOOL_OFF\"}";
-    }
+    } 
     mqttclient.publish("dusty", data.c_str());
     log_debug("MQTT: Message sent"); //: " << data);
 }
 
 static void sense(void* pvParameters) {
-    TickType_t xTaskInterval = REPEAT_INTERVAL;  // in ticks (typically ms)
+    TickType_t xTaskInterval = REPEAT_INTERVAL / portTICK_PERIOD_MS;  // in ticks (typically ms)
 
      while (true) {
         if (connect() && spindle) {
@@ -62,9 +62,9 @@ static void sense(void* pvParameters) {
                     closeCount--;
                 }
             }
-            mqttclient.loop();
         }
-        log_debug("MQTT: task sleeping");
+        mqttclient.loop();
+        log_debug("MQTT: task sleeping stack:" << uxTaskGetStackHighWaterMark(NULL));
         vTaskDelay(xTaskInterval);
     }
 }
@@ -73,12 +73,11 @@ void dusty_init() {
     log_info("MQTT: initialized");
     xTaskCreatePinnedToCore(sense,        // task
                             "dustyTask",  // name for task
-                            4096,              // size of task stack
+                            2048,              // size of task stack
                             NULL,              // parameters
                             1,                 // priority
                             &dustyTaskHandle,
-                            CONFIG_ARDUINO_RUNNING_CORE  // must run the task on same core
-                                                         // core
+                            SUPPORT_TASK_CORE  // core
     );
 }
 
