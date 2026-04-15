@@ -18,7 +18,10 @@ void USBKeyboardChannel::init() {
 
 Error USBKeyboardChannel::pollLine(char* line) {
   if (xQueueReceive(keyEventQueue, &keyEvent, pdMS_TO_TICKS(50))) {
-      log_debug("received even from queue state: " << keyEvent.state << " code: "<< keyEvent.key_code);
+      std::stringstream ss;
+      ss << std::hex << keyEvent.key_code; // Formats to "2a"
+      std::string hexStr = ss.str();
+      log_debug("received even from queue state: " << keyEvent.state << " code: " << keyEvent.key_code_hex);
       if (keyEvent.state == keyEvent.KEY_STATE_RELEASED && jogging) {
         jogging = false;  
         if (continuous) {

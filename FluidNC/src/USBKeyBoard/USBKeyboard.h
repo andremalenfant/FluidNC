@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Andre Malenfant
 // Use of this source code is governed by a GPLv3 license that can be found in the LICENSE file.
 
+#include <sstream>
 #include "hid_host.h"
 #include <freertos/queue.h>
 
@@ -22,6 +23,7 @@ typedef struct {
   enum key_state { KEY_STATE_PRESSED = 0x00, KEY_STATE_RELEASED = 0x01 } state;
   uint8_t modifier;
   uint8_t key_code;
+  char key_code_hex[4];
   QueueHandle_t keyEventQueue;
 } key_event_t;
 

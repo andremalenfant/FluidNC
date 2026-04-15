@@ -37,6 +37,7 @@ void hid_host_keyboard_report_callback(const uint8_t *const data,
       key_event.key_code = prev_keys[i];
       key_event.modifier = 0;
       key_event.state = key_event.KEY_STATE_RELEASED;
+      sprintf(key_event.key_code_hex, "%02X", key_event.key_code);
       key_event_callback(key_event, (QueueHandle_t)arg);
     }
 
@@ -46,6 +47,7 @@ void hid_host_keyboard_report_callback(const uint8_t *const data,
       key_event.key_code = kb_report->key[i];
       key_event.modifier = kb_report->modifier.val;
       key_event.state = key_event.KEY_STATE_PRESSED;
+      sprintf(key_event.key_code_hex, "%02X", key_event.key_code);
       key_event_callback(key_event, (QueueHandle_t)arg);
     }
   }
@@ -186,7 +188,7 @@ void hid_host_device_callback(hid_host_device_handle_t hid_device_handle,
 }
 
 void key_event_callback(key_event_t key_event, QueueHandle_t keyEventQueue) {
-  log_debug("Key event state:" << key_event.state << " mod: " << key_event.modifier << " code: " << key_event.key_code);
+  log_debug("Key event state:" << key_event.state << " mod: " << key_event.modifier << " code: " << key_event.key_code_hex);
   xQueueSend(keyEventQueue, &key_event, 0);
 }
 
