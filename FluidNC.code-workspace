@@ -2,6 +2,9 @@
 	"folders": [
 		{
 			"path": "."
+		},
+		{
+			"path": "../ESP3D-WEBUI"
 		}
 	],
 	"settings": {}
