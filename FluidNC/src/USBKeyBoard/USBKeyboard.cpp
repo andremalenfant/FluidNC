@@ -189,7 +189,10 @@ void hid_host_device_callback(hid_host_device_handle_t hid_device_handle,
 
 void key_event_callback(key_event_t key_event, QueueHandle_t keyEventQueue) {
   log_debug("Key event state:" << key_event.state << " mod: " << key_event.modifier << " code: " << key_event.key_code_hex);
-  xQueueSend(keyEventQueue, &key_event, 0);
+  if (xQueueSend(keyEventQueue, &key_event, 0) == errQUEUE_FULL) {
+    xQueueReset(keyEventQueue);
+    xQueueSend(keyEventQueue, &key_event, 0);
+  }
 }
 
 void init_hid_host(QueueHandle_t keyEventQueue) {
