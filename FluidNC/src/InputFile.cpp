@@ -85,7 +85,7 @@ Error InputFile::pollLine(char* line) {
             float percent_complete = ((float)position()) * 100.0f / size();
 
             std::ostringstream s;
-            s << "SD:" << std::fixed << std::setprecision(2) << percent_complete << "," << path().c_str();
+            s << "SD:" << std::fixed << std::setprecision(2) << percent_complete << "," << path().c_str() << "," << _line_number;
             _progress = s.str();
         }
             return Error::Ok;

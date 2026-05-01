@@ -22,6 +22,9 @@ Error USBKeyboardChannel::pollLine(char* line) {
       ss << std::hex << keyEvent.key_code; // Formats to "2a"
       std::string hexStr = ss.str();
       log_debug("received even from queue state: " << keyEvent.state << " code: " << keyEvent.key_code_hex);
+      if (keyEvent.key_code == HID_KEY_NUM_LOCK){
+        return Error::NoData;
+      }
       if (keyEvent.state == keyEvent.KEY_STATE_RELEASED && jogging) {
         jogging = false;  
         if (continuous) {
