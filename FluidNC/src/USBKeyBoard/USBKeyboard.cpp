@@ -128,8 +128,13 @@ void usb_lib_task(void *arg) {
   while (true) {
     uint32_t event_flags;
     usb_host_lib_handle_events(portMAX_DELAY, &event_flags);
+#ifdef DEBUG_TASK_STACK
+    static UBaseType_t uxHighWaterMarkusblib = 0;
+    reportTaskStackSize(uxHighWaterMarkusblib);
+#endif   
 
-    // Release devices once all clients has deregistered
+    log_verbose("USBKeyboard usb_lib_task");    
+// Release devices once all clients has deregistered
     if (event_flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) {
       usb_host_device_free_all();
       log_debug("USB Event flags: NO_CLIENTS");
@@ -161,9 +166,14 @@ void hid_host_task(void *pvParameters) {
   // Wait queue
   while (true) {
     if (xQueueReceive(hid_host_event_queue, &evt_queue, pdMS_TO_TICKS(50))) {
+      log_verbose("USBKeyboard hid_host_task received from queue");
       hid_host_device_event(evt_queue.hid_device_handle, evt_queue.event,
                             pvParameters);
     }
+#ifdef DEBUG_TASK_STACK
+    static UBaseType_t uxHighWaterMark = 0;
+    reportTaskStackSize(uxHighWaterMark);
+#endif     
   }
 
   xQueueReset(hid_host_event_queue);
@@ -184,7 +194,12 @@ void hid_host_device_callback(hid_host_device_handle_t hid_device_handle,
                               const hid_host_driver_event_t event, void *arg) {
   const hid_host_event_queue_t evt_queue = {
       .hid_device_handle = hid_device_handle, .event = event, .arg = arg};
+      log_verbose("USBKeyboard hid_host_device_callback received event");
   xQueueSend(hid_host_event_queue, &evt_queue, 0);
+#ifdef DEBUG_TASK_STACK
+            static UBaseType_t uxHighWaterMarkhidhost = 0;
+            reportTaskStackSize(uxHighWaterMarkhidhost);
+#endif     
 }
 
 void key_event_callback(key_event_t key_event, QueueHandle_t keyEventQueue) {
@@ -197,18 +212,19 @@ void key_event_callback(key_event_t key_event, QueueHandle_t keyEventQueue) {
 
 void init_hid_host(QueueHandle_t keyEventQueue) {
   BaseType_t task_created;
-  xTaskCreatePinnedToCore(usb_lib_task, "usb_events", 4096, xTaskGetCurrentTaskHandle(), 2, NULL, 0);
+  
+  xTaskCreatePinnedToCore(usb_lib_task, "usb_events", 2048, xTaskGetCurrentTaskHandle(), 2, NULL, 0);
   ulTaskNotifyTake(false, 1000);
 
   const hid_host_driver_config_t hid_host_driver_config = {
       .create_background_task = true,
       .task_priority = 5,
-      .stack_size = 4096,
+      .stack_size = 2048,
       .core_id = 0,
       .callback = hid_host_device_callback,
       .callback_arg = keyEventQueue};
 
   ESP_ERROR_CHECK(hid_host_install(&hid_host_driver_config));
 
-  task_created = xTaskCreate(&hid_host_task, "hid_task", 4 * 1024, keyEventQueue, 2, NULL);
+  task_created = xTaskCreate(&hid_host_task, "hid_task", 2048, keyEventQueue, 2, NULL);
 }

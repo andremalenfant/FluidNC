@@ -17,56 +17,56 @@ void USBKeyboardChannel::init() {
 }
 
 Error USBKeyboardChannel::pollLine(char* line) {
-  if (xQueueReceive(keyEventQueue, &keyEvent, pdMS_TO_TICKS(50))) {
-      std::stringstream ss;
-      ss << std::hex << keyEvent.key_code; // Formats to "2a"
-      std::string hexStr = ss.str();
-      log_debug("received even from queue state: " << keyEvent.state << " code: " << keyEvent.key_code_hex);
-      if (keyEvent.key_code == HID_KEY_NUM_LOCK){
-        return Error::NoData;
-      }
-      if (keyEvent.state == keyEvent.KEY_STATE_RELEASED && jogging) {
-        jogging = false;  
-        if (continuous) {
-          log_debug("Cancelling jog");
-          execute_realtime_command(Cmd::JogCancel, *this);  
+    if (xQueueReceive(keyEventQueue, &keyEvent, pdMS_TO_TICKS(50))) {
+        std::stringstream ss;
+        ss << std::hex << keyEvent.key_code;  // Formats to "2a"
+        std::string hexStr = ss.str();
+        log_debug("received even from queue state: " << keyEvent.state << " code: " << keyEvent.key_code_hex);
+        if (keyEvent.key_code == HID_KEY_NUM_LOCK) {
+            return Error::NoData;
         }
-        return Error::NoData;
-      } else {
-        switch(keyEvent.key_code) {
-          case HID_KEY_KEYPAD_4: //Arrow left
-            return prepareJogCommand(line, continuous ? "X-1000" : "X-" + steps[step]);
-          case HID_KEY_KEYPAD_6: //Arrow right
-            return prepareJogCommand(line, continuous ? "X1000" : "X" + steps[step]);
-          case HID_KEY_KEYPAD_8: //Arrow up
-            return prepareJogCommand(line, continuous ? "Y1000" : "Y" + steps[step]);
-          case HID_KEY_KEYPAD_2: //Arrow down
-            return prepareJogCommand(line, continuous ? "Y-1000" : "Y-" + steps[step]);
-          case HID_KEY_KEYPAD_9: //Page Up
-            return prepareJogCommand(line, continuous ? "Z100" : "Z" + steps[step]);
-          case HID_KEY_KEYPAD_3: //Page down
-            return prepareJogCommand(line, continuous ? "Z-100" : "Z-" + steps[step]);
-          case HID_KEY_KEYPAD_DIV: // /
-            continuous = false;
-            break;
-          case HID_KEY_KEYPAD_MUL: // *
-            continuous = true;
-            break;
-          case HID_KEY_KEYPAD_ADD: // +
-            step = (step + 1 < 3) ? step + 1 : step;
-            break;
-          case HID_KEY_KEYPAD_SUB: // -
-            step = (step - 1 >= 0) ? step - 1 : step;
-            break;
-        }  
-      }
-  }
-  return Error::NoData;
+        if (keyEvent.state == keyEvent.KEY_STATE_RELEASED && jogging) {
+            jogging = false;
+            if (continuous) {
+                log_debug("Cancelling jog");
+                execute_realtime_command(Cmd::JogCancel, *this);
+            }
+            return Error::NoData;
+        } else {
+            switch (keyEvent.key_code) {
+                case HID_KEY_KEYPAD_4:  //Arrow left
+                    return prepareJogCommand(line, continuous ? "X-1000" : "X-" + steps[step]);
+                case HID_KEY_KEYPAD_6:  //Arrow right
+                    return prepareJogCommand(line, continuous ? "X1000" : "X" + steps[step]);
+                case HID_KEY_KEYPAD_8:  //Arrow up
+                    return prepareJogCommand(line, continuous ? "Y1000" : "Y" + steps[step]);
+                case HID_KEY_KEYPAD_2:  //Arrow down
+                    return prepareJogCommand(line, continuous ? "Y-1000" : "Y-" + steps[step]);
+                case HID_KEY_KEYPAD_9:  //Page Up
+                    return prepareJogCommand(line, continuous ? "Z100" : "Z" + steps[step]);
+                case HID_KEY_KEYPAD_3:  //Page down
+                    return prepareJogCommand(line, continuous ? "Z-100" : "Z-" + steps[step]);
+                case HID_KEY_KEYPAD_DIV:  // /
+                    continuous = false;
+                    break;
+                case HID_KEY_KEYPAD_MUL:  // *
+                    continuous = true;
+                    break;
+                case HID_KEY_KEYPAD_ADD:  // +
+                    step = (step + 1 < 3) ? step + 1 : step;
+                    break;
+                case HID_KEY_KEYPAD_SUB:  // -
+                    step = (step - 1 >= 0) ? step - 1 : step;
+                    break;
+            }
+        }
+    }
+    return Error::NoData;
 }
 
 Error USBKeyboardChannel::prepareJogCommand(char* line, String cmd) {
     jogging = true;
-    cmd = "$J=G91 G21 F3000 " + cmd + "\r";
+    cmd     = "$J=G91 G21 F3000 " + cmd + "\r";
     cmd.toCharArray(line, cmd.length());
     log_debug("prepared command: " << line);
     return Error::Ok;
