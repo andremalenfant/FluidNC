@@ -83,7 +83,7 @@ Error InputFile::pollLine(char* line) {
             float percent_complete = ((float)position()) * 100.0f / size();
 
             _progress = "SD:" + formatFloat(percent_complete, 2) + "," + path() + ",";
-            _progress += std::to_string(_line_number)
+            _progress += std::to_string(_line_number);
         }
             return Error::Ok;
         case Error::Eof:
