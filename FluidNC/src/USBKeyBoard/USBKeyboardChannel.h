@@ -42,7 +42,7 @@ private:
     uint8_t step = 1;
     String steps[3] = {"0.1", "1", "10"};      
     key_event_t keyEvent;
-    QueueHandle_t keyEventQueue;
+    QueueHandle_t keyEventQueue = NULL;
 
     Error prepareJogCommand(char* line, String cmd);
 };

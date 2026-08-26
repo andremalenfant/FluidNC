@@ -61,6 +61,7 @@ void hid_host_interface_callback(hid_host_device_handle_t hid_device_handle,
   uint8_t data[64] = {0};
   size_t data_length = 0;
   hid_host_dev_params_t dev_params;
+  log_debug("hid_host_interface_callback");
   ESP_ERROR_CHECK(hid_host_device_get_params(hid_device_handle, &dev_params));
 
   switch (event) {
@@ -116,39 +117,26 @@ void hid_host_device_event(hid_host_device_handle_t hid_device_handle,
 }
 
 void usb_lib_task(void *arg) {
+    ulTaskNotifyTake(false, 1000);
+    while (true) {
+      uint32_t event_flags;
+      usb_host_lib_handle_events(portMAX_DELAY, &event_flags);
+    #ifdef DEBUG_TASK_STACK
+      static UBaseType_t uxHighWaterMarkusblib = 0;
+      reportTaskStackSize(uxHighWaterMarkusblib);
+    #endif   
 
-  const usb_host_config_t host_config = {
-      .skip_phy_setup = false,
-      .intr_flags = ESP_INTR_FLAG_LEVEL1,
-  };
-
-  ESP_ERROR_CHECK(usb_host_install(&host_config));
-  xTaskNotifyGive((TaskHandle_t)arg);
-
-  while (true) {
-    uint32_t event_flags;
-    usb_host_lib_handle_events(portMAX_DELAY, &event_flags);
-#ifdef DEBUG_TASK_STACK
-    static UBaseType_t uxHighWaterMarkusblib = 0;
-    reportTaskStackSize(uxHighWaterMarkusblib);
-#endif   
-
-    log_verbose("USBKeyboard usb_lib_task");    
-// Release devices once all clients has deregistered
-    if (event_flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) {
-      usb_host_device_free_all();
-      log_debug("USB Event flags: NO_CLIENTS");
+      log_verbose("USBKeyboard usb_lib_task event_flags = " << event_flags);    
+    // Release devices once all clients has deregistered
+      if (event_flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) {
+        usb_host_device_free_all();
+        log_debug("USB Event flags: NO_CLIENTS");
+      }
+      // All devices were removed
+      if (event_flags & USB_HOST_LIB_EVENT_FLAGS_ALL_FREE) {
+        log_debug("USB Event flags: ALL_FREE");
+      }
     }
-    // All devices were removed
-    if (event_flags & USB_HOST_LIB_EVENT_FLAGS_ALL_FREE) {
-      log_debug("USB Event flags: ALL_FREE");
-    }
-  }
-  log_debug("USB shutdown");
-  // Clean up USB Host
-  vTaskDelay(10); // Short delay to allow clients clean-up
-  ESP_ERROR_CHECK(usb_host_uninstall());
-  vTaskDelete(NULL);
 }
 
 /**
@@ -211,20 +199,37 @@ void key_event_callback(key_event_t key_event, QueueHandle_t keyEventQueue) {
 }
 
 void init_hid_host(QueueHandle_t keyEventQueue) {
-  BaseType_t task_created;
-  
-  xTaskCreatePinnedToCore(usb_lib_task, "usb_events", 2048, xTaskGetCurrentTaskHandle(), 2, NULL, 0);
-  ulTaskNotifyTake(false, 1000);
+   const usb_host_config_t host_config = {
+      .skip_phy_setup = false,
+      .intr_flags = ESP_INTR_FLAG_LEVEL1,
+  };
 
-  const hid_host_driver_config_t hid_host_driver_config = {
-      .create_background_task = true,
-      .task_priority = 5,
-      .stack_size = 2048,
-      .core_id = 0,
-      .callback = hid_host_device_callback,
-      .callback_arg = keyEventQueue};
+  esp_err_t ret = usb_host_install(&host_config);
+  if (ret == ESP_OK){
+    BaseType_t task_created;
+    
+    TaskHandle_t event_task;
+    xTaskCreatePinnedToCore(usb_lib_task, "usb_events", 4096, xTaskGetCurrentTaskHandle(), 2, &event_task, 0);
+    ulTaskNotifyTake(false, 1000);
 
-  ESP_ERROR_CHECK(hid_host_install(&hid_host_driver_config));
+    const hid_host_driver_config_t hid_host_driver_config = {
+        .create_background_task = true,
+        .task_priority = 5,
+        .stack_size = 4096,
+        .core_id = 0,
+        .callback = hid_host_device_callback,
+        .callback_arg = keyEventQueue};
 
-  task_created = xTaskCreate(&hid_host_task, "hid_task", 2048, keyEventQueue, 2, NULL);
+    ret = hid_host_install(&hid_host_driver_config);
+    if (ret == ESP_OK) {
+      xTaskNotifyGive(event_task);
+      task_created = xTaskCreate(&hid_host_task, "hid_task", 4096, keyEventQueue, 2, NULL);
+    }else {
+      log_error(esp_err_to_name(ret));  
+      usb_host_uninstall();
+      vTaskDelete(event_task);
+    }
+  } else {
+    log_error(esp_err_to_name(ret));
+  }    
 }

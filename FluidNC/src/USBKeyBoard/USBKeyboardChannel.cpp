@@ -10,10 +10,10 @@
 #include "RealtimeCmd.h"
 
 void USBKeyboardChannel::init() {
-    log_debug("USBKeyboardChannel start");
+    log_info("USBKeyboardChannel starting");
+    allChannels.registration(this);
     keyEventQueue = xQueueCreate(10, sizeof(key_event_t));
     init_hid_host(keyEventQueue);
-    allChannels.registration(this);
 }
 
 Error USBKeyboardChannel::pollLine(char* line) {
